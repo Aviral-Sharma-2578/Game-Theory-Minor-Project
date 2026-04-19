@@ -1,165 +1,155 @@
 """
-main.py — Analysis Driver for the Two-Stage Strategic Deterrence Game
+main.py — Analysis Driver for the Asymmetric Escalation Game
+Kilgour & Zagare (2007), "Explaining Limited Conflicts"
 
 Orchestrates:
     1. Payoff table display
-    2. Strategic scenario analysis (4 scenarios)
-    3. Sensitivity analysis (credibility sweep 0.0–1.0)
-    4. Stability map (matplotlib heatmap)
+    2. Strategic scenario analysis (6 scenarios)
+    3. Sensitivity analysis (credibility sweep)
+    4. Stability map (4-zone heatmap + escalation risk overlay)
     5. Signaling analysis (audience costs & sunk costs)
-
-Usage:
-    python main.py
 """
 
 from __future__ import annotations
-
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")                    # non-interactive backend
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.patches import Patch
 
 from game_engine import GameConfig, Player, print_payoff_table
-from scenarios import (
-    backward_induction,
-    run_all_scenarios,
-    print_scenario_results,
-)
-from signaling import (
-    analyze_signaling_effect,
-    print_signaling_analysis,
-)
+from scenarios import backward_induction, run_all_scenarios, print_scenario_results
+from signaling import analyze_signaling_effect, print_signaling_analysis
 
 
 # ===========================================================================
 # 1. Sensitivity Analysis
 # ===========================================================================
 
-def sensitivity_analysis(
-    steps: int = 11,
-) -> np.ndarray:
-    """Sweep USA and Iran credibility from 0.0 to 1.0.
-
-    Returns an (steps × steps) array of equilibrium labels.
-    Also prints a formatted ASCII table.
-    """
+def sensitivity_analysis(steps: int = 11) -> np.ndarray:
     cred_values = [round(i / (steps - 1), 2) for i in range(steps)]
     grid = np.empty((steps, steps), dtype=object)
+    for i, cd in enumerate(cred_values):
+        for j, cc in enumerate(cred_values):
+            r = backward_induction(GameConfig(credibility_defender=cd, credibility_challenger=cc))
+            grid[i, j] = r.outcome
 
-    for i, cred_usa in enumerate(cred_values):
-        for j, cred_iran in enumerate(cred_values):
-            cfg = GameConfig(
-                credibility_usa=cred_usa,
-                credibility_iran=cred_iran,
-            )
-            result = backward_induction(cfg)
-            label = f"{result.equilibrium[0]},{result.equilibrium[1]}"
-            grid[i, j] = label
-
-    # --- Pretty-print table ---
-    col_w = 12
-    header = f"{'':>{col_w}}" + "".join(f"{'Iran=' + str(c):^{col_w}}" for c in cred_values)
-    divider = "-" * len(header)
-
-    print(f"\n{'SENSITIVITY ANALYSIS - Nash Equilibria':^{len(header)}}")
-    print(f"{'(USA Credibility x Iran Credibility)':^{len(header)}}")
-    print(divider)
+    col_w = 10
+    header = f"{'':>{col_w}}" + "".join(f"{'Ch=' + str(c):^{col_w}}" for c in cred_values)
+    div = "-" * len(header)
+    print(f"\n{'SENSITIVITY ANALYSIS — Asymmetric Escalation Game':^{len(header)}}")
+    print(f"{'(Defender Credibility × Challenger Credibility)':^{len(header)}}")
+    print(div)
     print(header)
-    print(divider)
-
-    for i, cred_usa in enumerate(cred_values):
-        row_label = f"USA={cred_usa:<5}"
+    print(div)
+    for i, cd in enumerate(cred_values):
         cells = "".join(f"{grid[i, j]:^{col_w}}" for j in range(steps))
-        print(f"{row_label:>{col_w}}{cells}")
-
-    print(divider)
+        print(f"{'Def=' + str(cd):>{col_w}}{cells}")
+    print(div)
     return grid
 
 
 # ===========================================================================
-# 2. Stability Map (matplotlib)
+# 2. Stability Map — computes escalation risk per cell
 # ===========================================================================
 
-def _classify_outcome(label: str) -> int:
-    """Map equilibrium label → zone code for the heatmap.
+def _get_zone_and_esc_risk(config: GameConfig):
+    """Compute the equilibrium zone and escalation risk for a credibility pair.
 
-    0 = Mutual Deterrence (CC)
-    1 = Conventional Conflict (CD / DC / DD without nuclear)
-    2 = Nuclear Conflict (contains E)
+    Returns (zone_code, escalation_risk):
+        zone 0 = SQ (Deterrence)
+        zone 1 = DC (No Response)
+        zone 2 = DD (Limited Conflict)
+        zone 3 = DE/ED/EE (Escalatory)
+        escalation_risk = probability mass on E-path outcomes
     """
-    if label == "C,C":
-        return 0
-    if "E" in label:
-        return 2
-    return 1
+    r = backward_induction(config)
+    p = config.credibility_defender
+    pCh = config.credibility_challenger
+
+    if r.outcome == "SQ":
+        # Even in SQ, compute what WOULD happen if Challenger initiated
+        # This shows the deterrence mechanism
+        pHH = p * p; pHS = p * (1-p); pSH = p * (1-p); pSS = (1-p)**2
+
+        from game_engine import get_defender_payoff, get_challenger_payoff
+        # Node 3b escalation
+        ee_hard_c = get_challenger_payoff(config, "EE", True)
+        de_c = get_challenger_payoff(config, "DE")
+        prob_chal_esc_3b = pCh if ee_hard_c > de_c else 0
+        ee_soft_c = get_challenger_payoff(config, "EE", False)
+        if ee_soft_c > de_c:
+            prob_chal_esc_3b += (1 - pCh)
+
+        # E-path decisions at Node 2
+        ee_hard_d = get_defender_payoff(config, "EE", is_str_hard=True)
+        ee_soft_d = get_defender_payoff(config, "EE", is_str_hard=False)
+        ed_d = get_defender_payoff(config, "ED")
+        de_d = get_defender_payoff(config, "DE")
+        dd_hard = get_defender_payoff(config, "DD", is_tac_hard=True)
+
+        e_hh = prob_chal_esc_3b * ee_hard_d + (1-prob_chal_esc_3b) * de_d
+        e_hs = prob_chal_esc_3b * ee_soft_d + (1-prob_chal_esc_3b) * de_d
+        prob_E = (pHH if e_hh > dd_hard else 0) + (pHS if e_hs > dd_hard else 0)
+        esc_risk = prob_E * prob_chal_esc_3b  # prob of EE given initiation
+        return 0, esc_risk
+
+    # For non-SQ outcomes, parse the reasoning for probabilities
+    # Use the outcome directly
+    if r.outcome == "DC":
+        # Extract E probability from reasoning
+        for line in r.reasoning.split("\n"):
+            if "N2 probs" in line:
+                parts = line.split("E=")
+                if len(parts) > 1:
+                    prob_e = float(parts[-1].strip())
+                    return 1, prob_e
+        return 1, 0.0
+    elif r.outcome == "DD":
+        return 2, 0.0
+    else:
+        return 3, 1.0
 
 
-def generate_stability_map(
-    steps: int = 51,
-    output_path: str = "stability_map.png",
-) -> None:
-    """Generate and save a colour-coded stability heatmap.
-
-    Axes: Iran credibility (x) vs USA credibility (y).
-    Zones:
-        Green  — Mutual Deterrence (CC)
-        Gold   — Conventional Conflict
-        Red    — Nuclear Conflict
-    """
+def generate_stability_map(steps=51, output_path="stability_map.png"):
+    """Generate a rich stability map with 4 zones + escalation risk overlay."""
     cred_values = np.linspace(0, 1, steps)
     zone_grid = np.zeros((steps, steps), dtype=int)
+    risk_grid = np.zeros((steps, steps), dtype=float)
 
-    for i, cred_usa in enumerate(cred_values):
-        for j, cred_iran in enumerate(cred_values):
-            cfg = GameConfig(
-                credibility_usa=float(cred_usa),
-                credibility_iran=float(cred_iran),
-            )
-            result = backward_induction(cfg)
-            label = f"{result.equilibrium[0]},{result.equilibrium[1]}"
-            zone_grid[i, j] = _classify_outcome(label)
+    for i, cd in enumerate(cred_values):
+        for j, cc in enumerate(cred_values):
+            cfg = GameConfig(credibility_defender=float(cd), credibility_challenger=float(cc))
+            zone, risk = _get_zone_and_esc_risk(cfg)
+            zone_grid[i, j] = zone
+            risk_grid[i, j] = risk
 
-    # --- Plotting ---
-    fig, ax = plt.subplots(figsize=(10, 8))
+    # --- Plot 1: Zone map ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
 
-    cmap = ListedColormap(["#2ecc71", "#f39c12", "#e74c3c"])
-    norm = BoundaryNorm([0, 1, 2, 3], cmap.N)
-
-    im = ax.imshow(
-        zone_grid,
-        origin="lower",
-        extent=[0, 1, 0, 1],
-        aspect="auto",
-        cmap=cmap,
-        norm=norm,
-        interpolation="nearest",
-    )
-
-    ax.set_xlabel("Iran Credibility", fontsize=13, fontweight="bold")
-    ax.set_ylabel("USA Credibility", fontsize=13, fontweight="bold")
-    ax.set_title(
-        "Stability Map - Two-Stage Deterrence Game\n"
-        "(Zagare 1992 / Kraig 1999)",
-        fontsize=15,
-        fontweight="bold",
-        pad=14,
-    )
-    ax.tick_params(labelsize=11)
-
-    legend_elements = [
-        Patch(facecolor="#2ecc71", edgecolor="black", label="Mutual Deterrence (CC)"),
-        Patch(facecolor="#f39c12", edgecolor="black", label="Conventional Conflict"),
-        Patch(facecolor="#e74c3c", edgecolor="black", label="Nuclear Conflict"),
+    cmap = ListedColormap(["#2ecc71", "#f39c12", "#3498db", "#e74c3c"])
+    norm = BoundaryNorm([0, 1, 2, 3, 4], cmap.N)
+    ax1.imshow(zone_grid, origin="lower", extent=[0,1,0,1], aspect="auto",
+               cmap=cmap, norm=norm, interpolation="nearest")
+    ax1.set_xlabel("Challenger (Iran) Credibility pCh", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Defender (USA) Credibility p", fontsize=12, fontweight="bold")
+    ax1.set_title("Equilibrium Zones\n(Kilgour & Zagare, 2007)", fontsize=14, fontweight="bold")
+    legend = [
+        Patch(facecolor="#2ecc71", edgecolor="k", label="Deterrence (SQ)"),
+        Patch(facecolor="#f39c12", edgecolor="k", label="No Response (DC)"),
+        Patch(facecolor="#3498db", edgecolor="k", label="Limited Conflict (DD)"),
+        Patch(facecolor="#e74c3c", edgecolor="k", label="Escalatory (DE/ED/EE)"),
     ]
-    ax.legend(
-        handles=legend_elements,
-        loc="upper left",
-        fontsize=11,
-        framealpha=0.9,
-        edgecolor="black",
-    )
+    ax1.legend(handles=legend, loc="upper left", fontsize=10, framealpha=0.9)
+
+    # --- Plot 2: Escalation risk heatmap ---
+    im = ax2.imshow(risk_grid, origin="lower", extent=[0,1,0,1], aspect="auto",
+                    cmap="YlOrRd", vmin=0, vmax=1, interpolation="bilinear")
+    ax2.set_xlabel("Challenger (Iran) Credibility pCh", fontsize=12, fontweight="bold")
+    ax2.set_ylabel("Defender (USA) Credibility p", fontsize=12, fontweight="bold")
+    ax2.set_title("Escalation Risk\n(Prob. of E-path outcomes)", fontsize=14, fontweight="bold")
+    fig.colorbar(im, ax=ax2, label="Escalation Risk", shrink=0.8)
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=180)
@@ -172,60 +162,34 @@ def generate_stability_map(
 # ===========================================================================
 
 def main() -> None:
-    print("=" * 70)
-    print("  TWO-STAGE STRATEGIC DETERRENCE GAME SIMULATION")
-    print("  Based on Zagare (1992) & Kraig (1999)")
-    print("=" * 70)
+    print("=" * 75)
+    print("  ASYMMETRIC ESCALATION GAME — STRATEGIC DETERRENCE SIMULATION")
+    print("  Based on Kilgour & Zagare (2007), Perfect Deterrence Theory")
+    print("=" * 75)
 
     base = GameConfig()
-
-    # --- Payoff table ---
     print("\n[1/5] PAYOFF TABLE")
     print_payoff_table(base)
 
-    # --- Strategic scenarios ---
     print("[2/5] STRATEGIC SCENARIO ANALYSIS")
     results = run_all_scenarios(base)
     print_scenario_results(results)
 
-    # --- Sensitivity analysis ---
     print("[3/5] SENSITIVITY ANALYSIS")
     sensitivity_analysis(steps=11)
 
-    # --- Stability map ---
     print("\n[4/5] GENERATING STABILITY MAP ...")
     generate_stability_map(steps=51, output_path="stability_map.png")
 
-    # --- Signaling analysis ---
     print("\n[5/5] SIGNALING ANALYSIS")
+    for player, label in [(Player.DEFENDER, "USA"), (Player.CHALLENGER, "Iran")]:
+        for mech in ["audience_cost", "sunk_cost"]:
+            results = analyze_signaling_effect(base, player, mechanism=mech)
+            print_signaling_analysis(results)
 
-    # Audience costs — USA
-    ac_usa = analyze_signaling_effect(
-        base, Player.USA, mechanism="audience_cost"
-    )
-    print_signaling_analysis(ac_usa)
-
-    # Audience costs — Iran
-    ac_iran = analyze_signaling_effect(
-        base, Player.IRAN, mechanism="audience_cost"
-    )
-    print_signaling_analysis(ac_iran)
-
-    # Sunk costs — USA
-    sc_usa = analyze_signaling_effect(
-        base, Player.USA, mechanism="sunk_cost"
-    )
-    print_signaling_analysis(sc_usa)
-
-    # Sunk costs — Iran
-    sc_iran = analyze_signaling_effect(
-        base, Player.IRAN, mechanism="sunk_cost"
-    )
-    print_signaling_analysis(sc_iran)
-
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 75)
     print("  SIMULATION COMPLETE")
-    print("=" * 70)
+    print("=" * 75)
 
 
 if __name__ == "__main__":

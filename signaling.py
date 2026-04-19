@@ -8,6 +8,8 @@ Models two commitment mechanisms from deterrence theory:
     2. Sunk Costs: Pre-game investments (e.g., missile defense, troop
        mobilization) that reduce the cost of retaliation.
 
+Updated for the Asymmetric Escalation Game (Kilgour & Zagare, 2007).
+
 References: Fearon (1994), Schelling (1966).
 """
 
@@ -31,10 +33,11 @@ class SignalingResult:
     mechanism: str           # "audience_cost" or "sunk_cost"
     player: Player
     cost_value: float
-    equilibrium: Tuple[str, str]
+    equilibrium: Tuple[str, ...]
+    outcome: str
     payoffs: Tuple[float, float]
-    credibility_usa: float
-    credibility_iran: float
+    credibility_defender: float
+    credibility_challenger: float
 
 
 # ---------------------------------------------------------------------------
@@ -62,13 +65,13 @@ def apply_audience_costs(
         The penalty for backing down.
     """
     cfg = deepcopy(config)
-    if player == Player.USA:
-        cfg.audience_cost_usa = cost
+    if player == Player.DEFENDER or player == Player.USA:
+        cfg.audience_cost_defender = cost
         # Higher audience cost → higher perceived credibility
-        cfg.credibility_usa = min(1.0, config.credibility_usa + cost * 0.1)
+        cfg.credibility_defender = min(1.0, config.credibility_defender + cost * 0.1)
     else:
-        cfg.audience_cost_iran = cost
-        cfg.credibility_iran = min(1.0, config.credibility_iran + cost * 0.1)
+        cfg.audience_cost_challenger = cost
+        cfg.credibility_challenger = min(1.0, config.credibility_challenger + cost * 0.1)
     return cfg
 
 
@@ -98,12 +101,12 @@ def apply_sunk_costs(
         Size of the pre-game investment.
     """
     cfg = deepcopy(config)
-    if player == Player.USA:
-        cfg.sunk_cost_usa = investment
-        cfg.credibility_usa = min(1.0, config.credibility_usa + investment * 0.08)
+    if player == Player.DEFENDER or player == Player.USA:
+        cfg.sunk_cost_defender = investment
+        cfg.credibility_defender = min(1.0, config.credibility_defender + investment * 0.08)
     else:
-        cfg.sunk_cost_iran = investment
-        cfg.credibility_iran = min(1.0, config.credibility_iran + investment * 0.08)
+        cfg.sunk_cost_challenger = investment
+        cfg.credibility_challenger = min(1.0, config.credibility_challenger + investment * 0.08)
     return cfg
 
 
@@ -150,9 +153,10 @@ def analyze_signaling_effect(
                 player=player,
                 cost_value=cost,
                 equilibrium=eq.equilibrium,
+                outcome=eq.outcome,
                 payoffs=eq.payoffs,
-                credibility_usa=modified_cfg.credibility_usa,
-                credibility_iran=modified_cfg.credibility_iran,
+                credibility_defender=modified_cfg.credibility_defender,
+                credibility_challenger=modified_cfg.credibility_challenger,
             )
         )
     return results
@@ -173,19 +177,19 @@ def print_signaling_analysis(results: List[SignalingResult]) -> None:
     )
     player_label = results[0].player.value
 
-    divider = "-" * 78
+    divider = "-" * 90
     print(f"\n+{divider}+")
-    print(f"|{'SIGNALING ANALYSIS':^78}|")
-    print(f"|  Mechanism : {mechanism_label:<20}  Player : {player_label:<30}|")
+    print(f"|{'SIGNALING ANALYSIS':^90}|")
+    print(f"|  Mechanism : {mechanism_label:<20}  Player : {player_label:<42}|")
     print(f"+{divider}+")
-    print(f"|  {'Cost':>6}  |  {'Cred(USA)':>9}  |  {'Cred(Iran)':>10}  |"
-          f"  {'Equilibrium':^16}  |  {'Payoffs':^14}  |")
+    print(f"|  {'Cost':>6}  |  {'Cred(Def)':>9}  |  {'Cred(Chal)':>10}  |"
+          f"  {'Equilibrium':^20}  |  {'Outcome':^8}  |  {'Payoffs':^14}  |")
     print(f"+{divider}+")
 
     for r in results:
         eq_str = f"({r.equilibrium[0]}, {r.equilibrium[1]})"
-        pay_str = f"({r.payoffs[0]:>5.2f}, {r.payoffs[1]:>5.2f})"
-        print(f"|  {r.cost_value:>6.1f}  |  {r.credibility_usa:>9.2f}  |"
-              f"  {r.credibility_iran:>10.2f}  |  {eq_str:^16}  |  {pay_str:^14}  |")
+        pay_str = f"({r.payoffs[0]:>6.2f}, {r.payoffs[1]:>6.2f})"
+        print(f"|  {r.cost_value:>6.1f}  |  {r.credibility_defender:>9.2f}  |"
+              f"  {r.credibility_challenger:>10.2f}  |  {eq_str:^20}  |  {r.outcome:^8}  |  {pay_str:^14}  |")
 
     print(f"+{divider}+\n")

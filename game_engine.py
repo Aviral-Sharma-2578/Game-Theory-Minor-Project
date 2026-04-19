@@ -1,11 +1,34 @@
 """
-game_engine.py — Core Game Engine for the Two-Stage Strategic Deterrence Game
+game_engine.py — Core Game Engine for the Asymmetric Escalation Game
 
-Models a two-stage extensive-form game between the USA (Nuclear Superpower)
-and Iran (Emerging Nuclear State), based on Zagare (1992) and Kraig (1999).
+Models the Asymmetric Escalation Game from Kilgour & Zagare (2007),
+"Explaining Limited Conflicts", based on Perfect Deterrence Theory
+(Zagare & Kilgour, 2000).
 
-Stage 1: Conventional warfare (Cooperate vs. Defect)
-Stage 2: Nuclear escalation (Escalate vs. Defect)
+Game Tree (sequential):
+    Node 1  — Challenger decides: C (Status Quo) or D (Initiate Conflict)
+    Node 2  — Defender decides:   C (Capitulate), D (Respond-in-kind), or E (Escalate)
+    Node 3a — If Defender chose D: Challenger decides D (Limited Conflict) or E (Escalate)
+    Node 3b — If Defender chose E: Challenger decides D (Concede) or E (All-Out Conflict)
+    Node 4  — If Challenger escalated at 3a: Defender decides D (Concede) or E (All-Out Conflict)
+
+Outcomes:
+    SQ  — Status Quo (Challenger cooperates at Node 1)
+    DC  — Defender Concedes (Challenger defects, Defender capitulates)
+    DD  — Limited Conflict (both stick with D)
+    ED  — Challenger Wins (Challenger escalates, Defender backs down)
+    DE  — Defender Wins (Defender escalates, Challenger concedes)
+    EE  — All-Out Conflict (both escalate)
+
+TYPE-DEPENDENT PAYOFFS (key feature from the paper):
+    Hard types have higher payoffs at EE (prefer escalation to losing),
+    Soft types have lower payoffs at EE (prefer backing down to mutual destruction).
+
+    Challenger: EE+ = 25 (Hard), EE- = 0 (Soft)
+    Defender:   EE+ = 30 (Hard), EE- = 0 (Soft)
+    Defender:   DD+ = 60 (Tact. Hard), DD- = 40 (Tact. Soft)
+
+Players are labelled "Challenger" (maps to Iran) and "Defender" (maps to USA).
 """
 
 from __future__ import annotations
@@ -20,16 +43,31 @@ from typing import Dict, Tuple
 # ---------------------------------------------------------------------------
 
 class Player(Enum):
-    """The two players in the deterrence game."""
-    USA = "USA"
-    IRAN = "Iran"
+    """The two players in the Asymmetric Escalation Game."""
+    DEFENDER = "USA"       # Defender (status-quo power)
+    CHALLENGER = "Iran"    # Challenger (revisionist power)
+
+
+# Keep backward-compatible references
+Player.USA = Player.DEFENDER
+Player.IRAN = Player.CHALLENGER
 
 
 class Action(Enum):
-    """Available actions across both stages."""
-    COOPERATE = "C"   # Stage 1: cooperate (status quo)
-    DEFECT = "D"      # Stage 1: defect (conventional aggression)
-    ESCALATE = "E"    # Stage 2: nuclear escalation
+    """Available actions across all nodes."""
+    COOPERATE = "C"   # Node 1: maintain status quo / Node 2: capitulate
+    DEFECT = "D"      # Initiate conflict / respond-in-kind / back down
+    ESCALATE = "E"    # Escalate to a higher level of conflict
+
+
+class Outcome(Enum):
+    """The six possible outcomes of the Asymmetric Escalation Game."""
+    SQ = "SQ"    # Status Quo — Challenger cooperates
+    DC = "DC"    # Defender Concedes — Challenger defects, Defender capitulates
+    DD = "DD"    # Limited Conflict — both respond-in-kind
+    ED = "ED"    # Challenger Wins — Challenger escalates, Defender backs down
+    DE = "DE"    # Defender Wins — Defender escalates, Challenger concedes
+    EE = "EE"    # All-Out Conflict — both escalate
 
 
 # ---------------------------------------------------------------------------
@@ -40,187 +78,235 @@ class Action(Enum):
 class GameConfig:
     """All tunable parameters for a single game instance.
 
-    Preference orderings (conventional stage):
-        USA : CD > CC > DD > DC   →  payoffs 4, 3, 2, 1
-        Iran: DC > CC > DD > CD   →  payoffs 4, 3, 2, 1
+    Preference orderings (from the paper, Kilgour & Zagare 2007):
+        Challenger: DC > SQ > ED > DD > EE+ > DE > EE-
+        Defender:   SQ > DE > DD+ > DC > DD- > EE+ > ED > EE-
+
+    Type-dependent payoffs (the paper's key feature):
+        At EE: Hard types get EE+ payoff, Soft types get EE-
+        At DD: Tactically Hard Defender gets DD+, Soft gets DD-
+
+    The model uses the paper's numerical example:
+        Challenger: DC=100, SQ=60, ED=45, DD=40, EE+=25, DE=20, EE-=0
+        Defender:   SQ=100, DE=90, DD+=60, DC=50, DD-=40, EE+=30, ED=20, EE-=0
     """
 
-    # --- Base conventional payoffs (rank 1-4) ---
-    # 1st index = USA, 2nd index = Iran
-    # Keys: (usa_action, iran_action) for stage-1 conventional outcomes
-    usa_payoffs: Dict[Tuple[str, str], float] = field(default_factory=lambda: {
-        ("D", "C"): 4.0,   # USA defects, Iran cooperates -> temptation (best for USA)
-        ("C", "C"): 3.0,   # Mutual cooperation
-        ("D", "D"): 2.0,   # Mutual defection
-        ("C", "D"): 1.0,   # USA cooperates, Iran defects -> sucker (worst for USA)
-    })
+    # --- Challenger (Iran) payoffs per outcome ---
+    chal_SQ: float = 60.0     # Status Quo
+    chal_DC: float = 100.0    # Defender Concedes (best for Challenger)
+    chal_DD: float = 40.0     # Limited Conflict
+    chal_ED: float = 45.0     # Challenger Wins (escalates, Defender backs down)
+    chal_DE: float = 20.0     # Defender Wins (Defender escalates)
+    chal_EE_hard: float = 25.0  # All-Out Conflict — Hard Challenger (prefers EE to DE)
+    chal_EE_soft: float = 0.0   # All-Out Conflict — Soft Challenger (prefers DE to EE)
 
-    iran_payoffs: Dict[Tuple[str, str], float] = field(default_factory=lambda: {
-        ("C", "D"): 4.0,   # USA cooperates, Iran defects -> temptation (best for Iran)
-        ("C", "C"): 3.0,   # Mutual cooperation
-        ("D", "D"): 2.0,   # Mutual defection
-        ("D", "C"): 1.0,   # USA defects, Iran cooperates -> sucker (worst for Iran)
-    })
+    # --- Defender (USA) payoffs per outcome ---
+    def_SQ: float = 100.0     # Status Quo (best for Defender)
+    def_DC: float = 50.0      # Defender Concedes / capitulates
+    def_DD_hard: float = 60.0  # Limited Conflict — Tactically Hard Defender
+    def_DD_soft: float = 40.0  # Limited Conflict — Tactically Soft Defender
+    def_ED: float = 20.0      # Challenger Wins → Defender loses at escalation level
+    def_DE: float = 90.0      # Defender Wins (escalates successfully)
+    def_EE_hard: float = 30.0  # All-Out Conflict — Hard Defender (prefers EE to ED)
+    def_EE_soft: float = 0.0   # All-Out Conflict — Soft Defender (prefers ED to EE)
 
-    # --- Nuclear penalty ---
-    # Ensures EE (mutual nuclear exchange) is below all conventional outcomes.
-    nuc_penalty: float = 10.0
+    # --- Credibility parameters ---
+    # pCh: probability Challenger is "Hard" (prefers EE to DE)
+    credibility_challenger: float = 0.5
+    # p: Defender credibility parameter (determines all four Defender types)
+    #    pTac = pStr = p  (using the paper's single-parameter simplification)
+    credibility_defender: float = 0.5
 
-    # --- Credibility (probability that a nuclear threat is carried out) ---
-    credibility_usa: float = 0.5
-    credibility_iran: float = 0.5
+    # --- Capability flags ---
+    defender_can_escalate: bool = True
+    challenger_can_escalate: bool = True
 
     # --- First-strike bonus ---
     first_strike_bonus: float = 0.0
 
     # --- Audience costs (hand-tying) ---
-    audience_cost_usa: float = 0.0
-    audience_cost_iran: float = 0.0
+    audience_cost_defender: float = 0.0
+    audience_cost_challenger: float = 0.0
 
     # --- Sunk costs (pre-game investments) ---
-    sunk_cost_usa: float = 0.0
-    sunk_cost_iran: float = 0.0
+    sunk_cost_defender: float = 0.0
+    sunk_cost_challenger: float = 0.0
 
-    # --- Capability flag ---
-    iran_has_nuclear: bool = True
+    # ---- Backward compatibility aliases ----
+    @property
+    def credibility_usa(self) -> float:
+        return self.credibility_defender
+
+    @credibility_usa.setter
+    def credibility_usa(self, val: float):
+        self.credibility_defender = val
+
+    @property
+    def credibility_iran(self) -> float:
+        return self.credibility_challenger
+
+    @credibility_iran.setter
+    def credibility_iran(self, val: float):
+        self.credibility_challenger = val
+
+    @property
+    def iran_has_nuclear(self) -> bool:
+        return self.challenger_can_escalate
+
+    @iran_has_nuclear.setter
+    def iran_has_nuclear(self, val: bool):
+        self.challenger_can_escalate = val
 
 
 # ---------------------------------------------------------------------------
 # Payoff helpers
 # ---------------------------------------------------------------------------
 
-def _min_conventional(config: GameConfig) -> float:
-    """Return the minimum conventional payoff across both players."""
-    all_vals = list(config.usa_payoffs.values()) + list(config.iran_payoffs.values())
-    return min(all_vals)
-
-
-def get_conventional_payoffs(
-    config: GameConfig, usa_action: str, iran_action: str
-) -> Tuple[float, float]:
-    """Return (usa_payoff, iran_payoff) for a conventional-stage action pair.
+def get_challenger_payoff(config: GameConfig, outcome: str, is_hard: bool = True) -> float:
+    """Get Challenger's payoff for a given outcome and type.
 
     Parameters
     ----------
-    usa_action, iran_action : str
-        One of 'C' (Cooperate) or 'D' (Defect).
+    outcome : str
+        One of 'SQ', 'DC', 'DD', 'ED', 'DE', 'EE'.
+    is_hard : bool
+        True for Hard Challenger, False for Soft.
     """
-    key = (usa_action, iran_action)
-    usa_pay = config.usa_payoffs[key]
-    iran_pay = config.iran_payoffs[key]
+    pay = {
+        "SQ": config.chal_SQ,
+        "DC": config.chal_DC,
+        "DD": config.chal_DD,
+        "ED": config.chal_ED,
+        "DE": config.chal_DE,
+        "EE": config.chal_EE_hard if is_hard else config.chal_EE_soft,
+    }[outcome]
 
-    # Apply audience-cost penalty when a player cooperates (backs down)
-    # after presumably having made a public threat.
-    if usa_action == "C":
-        usa_pay -= config.audience_cost_usa
-    if iran_action == "C":
-        iran_pay -= config.audience_cost_iran
+    # Apply modifiers
+    if outcome == "ED":
+        pay += config.first_strike_bonus + config.sunk_cost_challenger
+    if outcome == "SQ":
+        pay -= config.audience_cost_challenger
+    if outcome == "DE":
+        pay -= config.audience_cost_challenger
 
-    return usa_pay, iran_pay
+    # Capability: if Challenger can't escalate, ED is unreachable → map to DD
+    if outcome == "ED" and not config.challenger_can_escalate:
+        return get_challenger_payoff(config, "DD", is_hard)
+    if outcome == "EE" and not config.challenger_can_escalate:
+        return get_challenger_payoff(config, "DE", is_hard)
+
+    return pay
 
 
-def get_nuclear_payoffs(
-    config: GameConfig, usa_action: str, iran_action: str
-) -> Tuple[float, float]:
-    """Return (usa_payoff, iran_payoff) for the nuclear-escalation stage.
+def get_defender_payoff(config: GameConfig, outcome: str,
+                        is_tac_hard: bool = True, is_str_hard: bool = True) -> float:
+    """Get Defender's payoff for a given outcome and type.
 
     Parameters
     ----------
-    usa_action, iran_action : str
-        One of 'E' (Escalate) or 'D' (Defect / back down).
+    outcome : str
+        One of 'SQ', 'DC', 'DD', 'ED', 'DE', 'EE'.
+    is_tac_hard : bool
+        True for Tactically Hard Defender, False for Soft.
+    is_str_hard : bool
+        True for Strategically Hard Defender, False for Soft.
     """
-    floor = _min_conventional(config)
-    
-    # Calculate the max conventional payoff to ensure U(ED) > max conventional
-    all_vals = list(config.usa_payoffs.values()) + list(config.iran_payoffs.values())
-    ceiling = max(all_vals)
+    if outcome == "DD":
+        pay = config.def_DD_hard if is_tac_hard else config.def_DD_soft
+    elif outcome == "EE":
+        pay = config.def_EE_hard if is_str_hard else config.def_EE_soft
+    else:
+        pay = {
+            "SQ": config.def_SQ,
+            "DC": config.def_DC,
+            "ED": config.def_ED,
+            "DE": config.def_DE,
+        }[outcome]
 
-    if usa_action == "E" and iran_action == "E":
-        # Mutual nuclear destruction — worst possible outcome
-        pay = floor - config.nuc_penalty
-        return pay, pay
+    # Apply modifiers
+    if outcome == "DE":
+        pay += config.first_strike_bonus + config.sunk_cost_defender
+    if outcome == "DC":
+        pay -= config.audience_cost_defender
+    if outcome == "ED":
+        pay -= config.audience_cost_defender
 
-    if usa_action == "E" and iran_action == "D":
-        # USA escalates, Iran backs down → first-strike advantage for USA
-        # Escalation win must be > conventional DD (2.0) and CC (3.0)
-        usa_pay = ceiling + 1.0 + config.first_strike_bonus + config.sunk_cost_usa
-        iran_pay = floor - config.nuc_penalty / 2  # severe but not mutual
-        return usa_pay, iran_pay
+    # Capability: if Defender can't escalate, DE is unreachable
+    if outcome == "DE" and not config.defender_can_escalate:
+        return get_defender_payoff(config, "DD", is_tac_hard, is_str_hard)
+    if outcome == "EE" and not config.defender_can_escalate:
+        return get_defender_payoff(config, "ED", is_tac_hard, is_str_hard)
 
-    if usa_action == "D" and iran_action == "E":
-        # Iran escalates, USA backs down
-        if not config.iran_has_nuclear:
-            # Iran cannot escalate without nuclear capability
-            # Falls back to conventional mutual defection payoff
-            return get_conventional_payoffs(config, "D", "D")
-        iran_pay = ceiling + 1.0 + config.first_strike_bonus + config.sunk_cost_iran
-        usa_pay = floor - config.nuc_penalty / 2
-        return usa_pay, iran_pay
-
-    # Both defect in nuclear stage → revert to conventional DD
-    return get_conventional_payoffs(config, "D", "D")
+    return pay
 
 
-def get_payoffs(
-    config: GameConfig, usa_action: str, iran_action: str
-) -> Tuple[float, float]:
-    """Unified dispatcher — works for both conventional and nuclear actions.
+def get_outcome_payoffs(config: GameConfig, outcome: str) -> Tuple[float, float]:
+    """Return averaged (defender_payoff, challenger_payoff) for display purposes.
 
-    Conventional actions: 'C', 'D'
-    Nuclear actions: 'E' (only valid in stage 2)
+    Uses expected payoffs over types for EE and DD outcomes.
     """
-    if usa_action in ("C", "D") and iran_action in ("C", "D"):
-        return get_conventional_payoffs(config, usa_action, iran_action)
-    return get_nuclear_payoffs(config, usa_action, iran_action)
+    p = config.credibility_defender
+    pCh = config.credibility_challenger
+
+    if outcome == "EE":
+        # Average over all type combinations
+        d_pay = p * config.def_EE_hard + (1 - p) * config.def_EE_soft
+        c_pay = pCh * config.chal_EE_hard + (1 - pCh) * config.chal_EE_soft
+    elif outcome == "DD":
+        d_pay = p * config.def_DD_hard + (1 - p) * config.def_DD_soft
+        c_pay = config.chal_DD
+    else:
+        d_pay = get_defender_payoff(config, outcome)
+        c_pay = get_challenger_payoff(config, outcome)
+
+    return d_pay, c_pay
 
 
-def get_all_outcomes(config: GameConfig) -> Dict[Tuple[str, str], Tuple[float, float]]:
-    """Return a mapping of every action pair to its payoff tuple.
-
-    Includes conventional pairs (CC, CD, DC, DD) and nuclear pairs (EE, ED, DE, DD-nuc).
-    """
-    outcomes: Dict[Tuple[str, str], Tuple[float, float]] = {}
-
-    # Conventional outcomes
-    for a_usa in ("C", "D"):
-        for a_iran in ("C", "D"):
-            outcomes[(a_usa, a_iran)] = get_conventional_payoffs(config, a_usa, a_iran)
-
-    # Nuclear outcomes
-    for a_usa in ("E", "D"):
-        for a_iran in ("E", "D"):
-            key = (a_usa, a_iran)
-            if key == ("D", "D"):
-                key = ("D_nuc", "D_nuc")  # distinguish from conventional DD
-            outcomes[key] = get_nuclear_payoffs(config, a_usa, a_iran)
-
+def get_all_outcomes(config: GameConfig) -> Dict[str, Tuple[float, float]]:
+    """Return a mapping of every outcome to its (defender, challenger) payoff tuple."""
+    outcomes: Dict[str, Tuple[float, float]] = {}
+    for name in ("SQ", "DC", "DD", "ED", "DE", "EE"):
+        outcomes[name] = get_outcome_payoffs(config, name)
     return outcomes
 
 
 def print_payoff_table(config: GameConfig) -> None:
-    """Pretty-print the full payoff table to stdout."""
-    outcomes = get_all_outcomes(config)
+    """Pretty-print the full payoff table to stdout, showing type-dependent payoffs."""
+    print("\n+==============================================================================+")
+    print("|            PAYOFF TABLE  (Defender=USA, Challenger=Iran)                      |")
+    print("|            Type-dependent payoffs marked with +/- suffixes                    |")
+    print("+==============================================================================+")
+    print("|  Outcome     | Description                           |   Payoffs (Def, Chal)  |")
+    print("+==============================================================================+")
 
-    print("\n+==========================================================+")
-    print("|            PAYOFF TABLE  (USA, Iran)                     |")
-    print("+==========================================================+")
-    print("|  Stage   |  USA Action  | Iran Action |   Payoffs        |")
-    print("+==========================================================+")
+    p = config.credibility_defender
+    pCh = config.credibility_challenger
 
-    labels = {
-        ("C", "C"): ("Conv.", "Cooperate", "Cooperate"),
-        ("C", "D"): ("Conv.", "Cooperate", "Defect"),
-        ("D", "C"): ("Conv.", "Defect", "Cooperate"),
-        ("D", "D"): ("Conv.", "Defect", "Defect"),
-        ("E", "E"): ("Nucl.", "Escalate", "Escalate"),
-        ("E", "D"): ("Nucl.", "Escalate", "Defect"),
-        ("D", "E"): ("Nucl.", "Defect", "Escalate"),
-        ("D_nuc", "D_nuc"): ("Nucl.", "Defect", "Defect"),
-    }
+    rows = [
+        ("SQ",  "Status Quo (Challenger cooperates)",
+         f"({config.def_SQ:>5.0f}, {config.chal_SQ:>5.0f})"),
+        ("DC",  "Defender Concedes (capitulates)",
+         f"({config.def_DC:>5.0f}, {config.chal_DC:>5.0f})"),
+        ("DD+", "Limited Conflict (Tac Hard Defender)",
+         f"({config.def_DD_hard:>5.0f}, {config.chal_DD:>5.0f})"),
+        ("DD-", "Limited Conflict (Tac Soft Defender)",
+         f"({config.def_DD_soft:>5.0f}, {config.chal_DD:>5.0f})"),
+        ("ED",  "Challenger Wins (escalates, Def backs down)",
+         f"({config.def_ED:>5.0f}, {config.chal_ED:>5.0f})"),
+        ("DE",  "Defender Wins (escalates, Chal concedes)",
+         f"({config.def_DE:>5.0f}, {config.chal_DE:>5.0f})"),
+        ("EE+", "All-Out Conflict (Hard types)",
+         f"({config.def_EE_hard:>5.0f}, {config.chal_EE_hard:>5.0f})"),
+        ("EE-", "All-Out Conflict (Soft types)",
+         f"({config.def_EE_soft:>5.0f}, {config.chal_EE_soft:>5.0f})"),
+    ]
 
-    for key, (stage, usa_lbl, iran_lbl) in labels.items():
-        if key in outcomes:
-            usa_p, iran_p = outcomes[key]
-            print(f"|  {stage:<6} |  {usa_lbl:<10} | {iran_lbl:<11}|  ({usa_p:>6.2f}, {iran_p:>6.2f}) |")
+    for name, desc, payoffs in rows:
+        print(f"|  {name:<12} | {desc:<37} |  {payoffs:<20} |")
 
-    print("+==========================================================+\n")
+    print("+==============================================================================+")
+    print(f"|  Defender credibility p = {p:.2f}  (pTac = pStr = p)")
+    print(f"|  Challenger credibility pCh = {pCh:.2f}")
+    print(f"|  Defender types: HH={p**2:.2f}, HS={p*(1-p):.2f}, "
+          f"SH={p*(1-p):.2f}, SS={(1-p)**2:.2f}")
+    print("+==============================================================================+\n")

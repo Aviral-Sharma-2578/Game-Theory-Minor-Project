@@ -1,376 +1,286 @@
 """
-scenarios.py — Strategic Scenarios & Backward-Induction Solver
+scenarios.py — Backward-Induction Solver for the Asymmetric Escalation Game
+Kilgour & Zagare (2007), "Explaining Limited Conflicts"
 
-Implements a two-stage backward-induction solver and four canonical
-strategic scenarios from the deterrence literature:
-
-    1. Called Bluff
-    2. Rational Irrationality (Madman Theory)
-    3. Asymmetric Capability
-    4. First-Strike Advantage
-
-Game Model (Zagare 1992 / Kraig 1999):
-    Stage 1: Each player chooses Cooperate (C) or Defect (D).
-    Stage 2: If a player is exploited (opponent defects), the exploited
-             player may threaten nuclear Escalation (E).  The credibility
-             of that threat determines whether the defector backs down.
-
-    - A player defects only if they believe the opponent's retaliatory
-      nuclear threat is NOT credible enough to deter them.
-    - High credibility of Player X → opponent is deterred from defecting
-      against X → Cooperation (CC).
-    - Low credibility → opponent defects → Conventional or Nuclear
-      conflict.
+Key fix: Each Defender type (HH, HS, SH, SS) independently evaluates
+C/D/E at Node 2 using its OWN type-specific EE and DD payoffs.
 """
 
 from __future__ import annotations
-
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import List, Tuple
+from game_engine import (
+    GameConfig, Player,
+    get_challenger_payoff, get_defender_payoff, get_outcome_payoffs,
+)
 
-from game_engine import Action, GameConfig, Player, get_payoffs
-
-
-# ---------------------------------------------------------------------------
-# Result container
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ScenarioResult:
-    """Container for a single scenario analysis."""
     name: str
     description: str
     config: GameConfig
-    equilibrium: Tuple[str, str]          # (usa_strategy, iran_strategy)
-    payoffs: Tuple[float, float]          # (usa_payoff, iran_payoff)
+    equilibrium: Tuple[str, ...]
+    outcome: str
+    payoffs: Tuple[float, float]
     reasoning: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Backward-Induction Solver
-# ---------------------------------------------------------------------------
-
-def _solve_nuclear_subgame(config: GameConfig) -> Tuple[str, str, float, float]:
-    """Stage 2: solve the nuclear escalation sub-game.
-
-    Each player decides whether to Escalate (E) or Defect (D) in the
-    nuclear stage.  A player escalates only if the expected payoff of
-    escalation (weighted by opponent's credibility) exceeds defection.
-
-    Returns
-    -------
-    (usa_nuc_action, iran_nuc_action, usa_payoff, iran_payoff)
-    """
-    ee = get_payoffs(config, "E", "E")
-    ed = get_payoffs(config, "E", "D")
-    de = get_payoffs(config, "D", "E")
-    dd = get_payoffs(config, "D", "D")
-
-    # USA's nuclear decision
-    usa_esc_ev = (config.credibility_iran * ee[0]
-                  + (1 - config.credibility_iran) * ed[0])
-    usa_def_ev = (config.credibility_iran * de[0]
-                  + (1 - config.credibility_iran) * dd[0])
-    usa_nuc = "E" if usa_esc_ev > usa_def_ev else "D"
-
-    # Iran's nuclear decision
-    if not config.iran_has_nuclear:
-        iran_nuc = "D"
-    else:
-        iran_esc_ev = (config.credibility_usa * ee[1]
-                       + (1 - config.credibility_usa) * de[1])
-        iran_def_ev = (config.credibility_usa * ed[1]
-                       + (1 - config.credibility_usa) * dd[1])
-        iran_nuc = "E" if iran_esc_ev > iran_def_ev else "D"
-
-    payoff = get_payoffs(config, usa_nuc, iran_nuc)
-    return usa_nuc, iran_nuc, payoff[0], payoff[1]
-
-
 def backward_induction(config: GameConfig) -> ScenarioResult:
-    """Full two-stage backward-induction solver.
+    """Full backward-induction solver with per-type decisions."""
+    p = config.credibility_defender
+    pCh = config.credibility_challenger
 
-    Decision Model:
-        Each player must choose whether to Defect (seize the initiative)
-        or Cooperate (maintain the status quo).
+    # Defender type probabilities (paper's single-parameter model)
+    pHH = p * p
+    pHS = p * (1 - p)
+    pSH = p * (1 - p)
+    pSS = (1 - p) ** 2
 
-        Temptation to defect:
-            - Iran's best outcome is DC (Iran defects, USA cooperates) = 4
-            - USA's best outcome is CD (USA cooperates, Iran defects) = 4
-            - But defecting risks triggering the opponent's nuclear threat.
+    # ===== Node 3b: Challenger decides E or D after Defender chose E =====
+    # Hard Chal: EE_hard_c vs DE_c
+    # Soft Chal: EE_soft_c vs DE_c
+    de_c = get_challenger_payoff(config, "DE")
+    ee_hard_c = get_challenger_payoff(config, "EE", is_hard=True)
+    ee_soft_c = get_challenger_payoff(config, "EE", is_hard=False)
+    hard_chal_esc_3b = ee_hard_c > de_c   # True with defaults: 25 > 20
+    soft_chal_esc_3b = ee_soft_c > de_c   # False with defaults: 0 < 20
+    prob_chal_esc_3b = (pCh if hard_chal_esc_3b else 0) + ((1-pCh) if soft_chal_esc_3b else 0)
 
-        Expected payoff of defecting for IRAN:
-            - With prob (1 - cred_usa): USA's threat is a bluff, Iran gets
-              its best outcome DC = 4.
-            - With prob (cred_usa): USA retaliates (nuclear subgame).
+    # ===== Node 2 E-path: per-Defender-type expected payoffs =====
+    de_d = get_defender_payoff(config, "DE")
 
-        Expected payoff of cooperating for IRAN:
-            - With prob (1 - cred_iran): USA defects (since Iran's threat
-              isn't credible), Iran gets CD = 1.  But Iran is not choosing
-              USA's action — we model this as: if Iran cooperates, the
-              outcome depends on what USA does independently.
+    def e_path_ev_def(is_str_hard):
+        """E-path expected payoff for a specific Defender type."""
+        ee_d = get_defender_payoff(config, "EE", is_str_hard=is_str_hard)
+        return prob_chal_esc_3b * ee_d + (1 - prob_chal_esc_3b) * de_d
 
-        We solve simultaneously: each player's best response considers
-        the expected nuclear consequences of mutual defection.
-    """
-    # ------ Stage 2: nuclear sub-game ------
-    usa_nuc, iran_nuc, nuc_usa_pay, nuc_iran_pay = _solve_nuclear_subgame(config)
+    e_path_HH = e_path_ev_def(is_str_hard=True)   # HH Defender's E-path EV
+    e_path_HS = e_path_ev_def(is_str_hard=False)   # HS Defender's E-path EV
+    e_path_SH = e_path_ev_def(is_str_hard=True)    # SH: strat hard
+    e_path_SS = e_path_ev_def(is_str_hard=False)   # SS: strat soft
 
-    # ------ Stage 1: deterrence calculus ------
-    cc = get_payoffs(config, "C", "C")  # (3, 3)
-    cd = get_payoffs(config, "C", "D")  # (1, 4)  USA's worst / Iran's best
-    dc = get_payoffs(config, "D", "C")  # (4, 1)  USA's best / Iran's worst
-    dd = get_payoffs(config, "D", "D")  # (2, 2)  conventional mutual defect
+    # E-path expected payoff for Challenger (same regardless of Def type)
+    e_path_chal = prob_chal_esc_3b * (pCh * ee_hard_c + (1-pCh) * ee_soft_c) + \
+                  (1 - prob_chal_esc_3b) * de_c
 
-    # Nuclear-escalation expected payoff when both defect (DD → nuclear risk)
-    # The probability of nuclear escalation given DD is the product of
-    # willingness. We use max(cred_usa, cred_iran) as the escalation risk.
-    esc_prob = max(config.credibility_usa, config.credibility_iran)
-    dd_eff = (
-        (1 - esc_prob) * dd[0] + esc_prob * nuc_usa_pay,
-        (1 - esc_prob) * dd[1] + esc_prob * nuc_iran_pay,
-    )
+    # ===== Node 4: Defender decides E or D after Challenger escalated at 3a =====
+    ed_d = get_defender_payoff(config, "ED")
+    ee_hard_d_n4 = get_defender_payoff(config, "EE", is_str_hard=True)
+    ee_soft_d_n4 = get_defender_payoff(config, "EE", is_str_hard=False)
+    # At Node 4, Defender is known to be Tact Hard (chose D at Node 2)
+    # Among Tact Hard: HH with conditional prob p, HS with prob (1-p)
+    # (conditional on being Tact Hard: pHH/(pHH+pHS) = p²/(p²+p(1-p)) = p)
+    prob_def_esc_n4 = p if ee_hard_d_n4 > ed_d else 0  # only HH escalates if EE_hard > ED
+    if ee_soft_d_n4 > ed_d:
+        prob_def_esc_n4 += (1 - p)  # HS also escalates
 
-    # --- IRAN's decision: Defect or Cooperate ---
-    # If Iran defects:
-    #   - USA may retaliate (escalate). With prob = cred_usa, USA retaliates
-    #     and the outcome is the nuclear subgame payoff for Iran.
-    #   - With prob = (1 - cred_usa), USA does NOT retaliate, and Iran
-    #     gets its best outcome CD (USA cooperates, Iran defects).
-    iran_ev_defect = (
-        (1 - config.credibility_usa) * cd[1]    # Iran exploits USA
-        + config.credibility_usa * dd_eff[1]      # USA retaliates → nuclear risk
-    )
-    iran_ev_cooperate = cc[1]   # Mutual cooperation
+    # ===== Node 3a: Challenger decides E or D after Defender responded-in-kind =====
+    dd_c = get_challenger_payoff(config, "DD")
+    ed_c = get_challenger_payoff(config, "ED")
 
-    iran_action = "D" if iran_ev_defect > iran_ev_cooperate else "C"
+    # Hard Chal at Node 3a: EV(E) = prob_def_esc_n4 * EE_hard_c + (1-prob)*ED_c vs DD_c
+    hard_chal_ev_esc_3a = prob_def_esc_n4 * ee_hard_c + (1 - prob_def_esc_n4) * ed_c
+    hard_chal_esc_3a = hard_chal_ev_esc_3a > dd_c
 
-    # --- USA's decision: Defect or Cooperate ---
-    # If USA defects:
-    #   - Iran may retaliate. With prob = cred_iran, Iran retaliates.
-    #   - With prob = (1 - cred_iran), Iran backs down, USA gets CD payoff
-    #     (but wait: CD = USA cooperates, Iran defects = 4 for USA)
-    #     Actually, if USA defects and Iran doesn't retaliate, the outcome
-    #     is DC from USA's perspective = 1 (worst for USA).
-    #
-    # KEY INSIGHT: USA's preference ordering is CD > CC > DD > DC.
-    # USA defecting gives DC = 1 (worst) if Iran cooperates!
-    # So USA has NO incentive to defect unilaterally under these preferences.
-    #
-    # The correct interpretation: USA "defects" means it launches a
-    # conventional strike. If Iran's nuclear threat is credible, this is
-    # dangerous. But USA's temptation to defect arises from foreign policy
-    # coercion — not from the payoff structure directly.
-    #
-    # For the model to work properly, we interpret the actions relative to
-    # each player's TEMPTATION payoff structure:
-    usa_ev_defect = (
-        (1 - config.credibility_iran) * dc[0]    # USA defects, Iran can't retaliate
-        + config.credibility_iran * dd_eff[0]      # Iran retaliates → nuclear risk
-    )
-    usa_ev_cooperate = cc[0]   # Mutual cooperation
+    soft_chal_ev_esc_3a = prob_def_esc_n4 * ee_soft_c + (1 - prob_def_esc_n4) * ed_c
+    soft_chal_esc_3a = soft_chal_ev_esc_3a > dd_c
 
-    usa_action = "D" if usa_ev_defect > usa_ev_cooperate else "C"
+    prob_chal_esc_3a = (pCh if hard_chal_esc_3a else 0) + ((1-pCh) if soft_chal_esc_3a else 0)
 
-    # --- Build strategy labels ---
-    usa_strat = usa_action
-    iran_strat = iran_action
-    if usa_action == "D" and iran_action == "D":
-        usa_strat = f"D->{usa_nuc}"
-        iran_strat = f"D->{iran_nuc}"
+    # ===== Node 2 D-path: per-Defender-type expected payoffs =====
+    dd_hard_d = get_defender_payoff(config, "DD", is_tac_hard=True)
 
-    # Resolve final payoffs
-    if usa_action == "D" and iran_action == "D":
-        final_payoffs = dd_eff
-    elif usa_action == "D" and iran_action == "C":
-        final_payoffs = dc
-    elif usa_action == "C" and iran_action == "D":
-        final_payoffs = cd
+    # If Chal escalates at 3a → Node 4
+    # Node 4 EV for HH Def: EE_hard(30) if escalates, ED(20) if not
+    n4_ev_HH = ee_hard_d_n4 if ee_hard_d_n4 > ed_d else ed_d
+    n4_ev_HS = ee_soft_d_n4 if ee_soft_d_n4 > ed_d else ed_d
+
+    d_path_HH = prob_chal_esc_3a * n4_ev_HH + (1 - prob_chal_esc_3a) * dd_hard_d
+    d_path_HS = prob_chal_esc_3a * n4_ev_HS + (1 - prob_chal_esc_3a) * dd_hard_d
+
+    # D-path expected payoff for Challenger
+    n4_chal_ev = prob_def_esc_n4 * (pCh*ee_hard_c+(1-pCh)*ee_soft_c) + \
+                 (1 - prob_def_esc_n4) * ed_c
+    d_path_chal = prob_chal_esc_3a * n4_chal_ev + (1 - prob_chal_esc_3a) * dd_c
+
+    # ===== Node 2: Each Defender type decides independently =====
+    dc_d = get_defender_payoff(config, "DC")
+    dc_c = get_challenger_payoff(config, "DC")
+
+    # Tactically Soft types (SH, SS) always capitulate → C
+    # Tactically Hard types (HH, HS) choose best of {D, E}
+    # (They never choose C because DD_hard(60) > DC(50) and DE(90) > DC(50))
+
+    if not config.defender_can_escalate:
+        hh_action = "D"
+        hs_action = "D"
     else:
-        final_payoffs = cc
+        hh_action = "E" if e_path_HH > d_path_HH else "D"
+        hs_action = "E" if e_path_HS > d_path_HS else "D"
+
+    # Aggregate: probability of each action at Node 2
+    prob_C = pSS + pSH   # = (1-p)
+    prob_D = (pHH if hh_action == "D" else 0) + (pHS if hs_action == "D" else 0)
+    prob_E = (pHH if hh_action == "E" else 0) + (pHS if hs_action == "E" else 0)
+
+    # Expected payoff for Challenger at Node 2
+    chal_ev_node2 = prob_C * dc_c + prob_D * d_path_chal + prob_E * e_path_chal
+    # Expected payoff for Defender at Node 2
+    def_ev_node2 = prob_C * dc_d + \
+                   (pHH if hh_action == "D" else 0) * d_path_HH + \
+                   (pHS if hs_action == "D" else 0) * d_path_HS + \
+                   (pHH if hh_action == "E" else 0) * e_path_HH + \
+                   (pHS if hs_action == "E" else 0) * e_path_HS
+
+    # ===== Node 1: Challenger decides C or D =====
+    sq_c = get_challenger_payoff(config, "SQ")
+    sq_d = get_defender_payoff(config, "SQ")
+    chal_action = "D" if chal_ev_node2 > sq_c else "C"
+
+    # Determine outcome by computing probability of each terminal outcome
+    if chal_action == "C":
+        outcome = "SQ"
+        eq_pay = (sq_d, sq_c)
+    else:
+        eq_pay = (def_ev_node2, chal_ev_node2)
+
+        # Probability of each terminal outcome given Challenger initiates:
+        # DC: Defender capitulates (Tac Soft types)
+        p_DC = prob_C
+        # D-path outcomes (Tac Hard types that choose D)
+        p_DD = prob_D * (1 - prob_chal_esc_3a)
+        p_ED = prob_D * prob_chal_esc_3a * (1 - prob_def_esc_n4)
+        p_EE_via_D = prob_D * prob_chal_esc_3a * prob_def_esc_n4
+        # E-path outcomes (Tac Hard types that choose E)
+        p_DE = prob_E * (1 - prob_chal_esc_3b)
+        p_EE_via_E = prob_E * prob_chal_esc_3b
+        p_EE = p_EE_via_D + p_EE_via_E
+
+        # Pick the most probable outcome
+        outcome_probs = {"DC": p_DC, "DD": p_DD, "ED": p_ED, "DE": p_DE, "EE": p_EE}
+        outcome = max(outcome_probs, key=outcome_probs.get)
+
+    # Strategy labels
+    if chal_action == "C":
+        c_strat, d_strat = "C", "-"
+    else:
+        # Defender's most likely action
+        if prob_E > prob_D and prob_E > prob_C:
+            d_strat = "E"
+            c_strat = f"D→{'E' if prob_chal_esc_3b > 0.5 else 'D'}"
+        elif prob_D > prob_C:
+            d_strat = "D"
+            c_strat = f"D→{'E' if prob_chal_esc_3a > 0.5 else 'D'}"
+        else:
+            d_strat = "C"
+            c_strat = "D"
 
     reasoning = (
-        f"Nuclear sub-game: USA={usa_nuc}, Iran={iran_nuc} "
-        f"(payoff: {nuc_usa_pay:.2f}, {nuc_iran_pay:.2f})\n"
-        f"  DD effective payoff: ({dd_eff[0]:.2f}, {dd_eff[1]:.2f})\n"
-        f"  USA: EV(C)={usa_ev_cooperate:.2f}  EV(D)={usa_ev_defect:.2f} "
-        f"-> {'D' if usa_ev_defect > usa_ev_cooperate else 'C'}\n"
-        f"  Iran: EV(C)={iran_ev_cooperate:.2f}  EV(D)={iran_ev_defect:.2f} "
-        f"-> {'D' if iran_ev_defect > iran_ev_cooperate else 'C'}\n"
-        f"  -> Equilibrium: ({usa_strat}, {iran_strat})"
+        f"Path → {outcome}\n"
+        f"  Types: HH={pHH:.2f} HS={pHS:.2f} SH={pSH:.2f} SS={pSS:.2f}\n"
+        f"  N3b: Chal esc prob={prob_chal_esc_3b:.2f} (Hard EE+={ee_hard_c:.0f} vs DE={de_c:.0f})\n"
+        f"  N4: Def esc prob={prob_def_esc_n4:.2f} (Hard EE+={ee_hard_d_n4:.0f} vs ED={ed_d:.0f})\n"
+        f"  N3a: Chal esc prob={prob_chal_esc_3a:.2f} (Hard EV={hard_chal_ev_esc_3a:.1f} vs DD={dd_c:.0f})\n"
+        f"  N2 HH: D={d_path_HH:.1f} E={e_path_HH:.1f} →{hh_action}\n"
+        f"  N2 HS: D={d_path_HS:.1f} E={e_path_HS:.1f} →{hs_action}\n"
+        f"  N2 probs: C={prob_C:.2f} D={prob_D:.2f} E={prob_E:.2f}\n"
+        f"  N1: EV(D)={chal_ev_node2:.2f} EV(C)={sq_c:.2f} →{chal_action}"
     )
 
     return ScenarioResult(
-        name="Backward Induction",
-        description="Full two-stage backward-induction equilibrium.",
-        config=config,
-        equilibrium=(usa_strat, iran_strat),
-        payoffs=final_payoffs,
-        reasoning=reasoning,
+        name="Backward Induction", description="Asymmetric Escalation Game.",
+        config=config, equilibrium=(c_strat, d_strat),
+        outcome=outcome, payoffs=eq_pay, reasoning=reasoning,
     )
 
 
 # ---------------------------------------------------------------------------
-# Scenario 1 — The Called Bluff
+# Scenarios
 # ---------------------------------------------------------------------------
 
-def called_bluff(base_config: GameConfig | None = None) -> ScenarioResult:
-    """One player's nuclear threat lacks credibility, opponent exploits it.
-
-    Sets USA credibility low, so Iran's opponent (USA) has a non-credible
-    threat. Iran exploits this by defecting.
-    """
+def called_bluff(base_config=None) -> ScenarioResult:
     cfg = deepcopy(base_config) if base_config else GameConfig()
-    cfg.credibility_usa = 0.1    # USA's nuclear threat is not credible
-    cfg.credibility_iran = 0.9   # Iran's threat IS credible
+    cfg.credibility_defender = 0.1
+    cfg.credibility_challenger = 0.9
+    r = backward_induction(cfg)
+    r.name = "Called Bluff"
+    r.description = "Defender's threat not credible (p=0.1). Challenger initiates."
+    return r
 
-    result = backward_induction(cfg)
-    result.name = "Called Bluff"
-    result.description = (
-        "USA's nuclear threat is not credible (cred=0.1). "
-        "Iran calls the bluff and defects, seizing first-mover advantage."
-    )
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Scenario 2 — Rational Irrationality (Madman Theory)
-# ---------------------------------------------------------------------------
-
-def rational_irrationality(base_config: GameConfig | None = None) -> ScenarioResult:
-    """Iran appears irrational, making its nuclear threat credible.
-
-    Iran adopts a 'madman' posture with very high apparent credibility,
-    deterring USA from aggression.
-    """
+def rational_irrationality(base_config=None) -> ScenarioResult:
     cfg = deepcopy(base_config) if base_config else GameConfig()
-    cfg.credibility_iran = 0.95   # Iran appears willing to escalate
-    cfg.credibility_usa = 0.3     # USA is restrained
+    cfg.credibility_challenger = 0.95
+    cfg.credibility_defender = 0.3
+    r = backward_induction(cfg)
+    r.name = "Rational Irrationality"
+    r.description = "Challenger projects near-certain willingness to escalate (pCh=0.95)."
+    return r
 
-    result = backward_induction(cfg)
-    result.name = "Rational Irrationality"
-    result.description = (
-        "Iran projects near-certain willingness to escalate (cred=0.95). "
-        "The 'Madman Theory' deters USA from conventional aggression."
-    )
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Scenario 3 — Asymmetric Capability
-# ---------------------------------------------------------------------------
-
-def asymmetric_capability(
-    base_config: GameConfig | None = None,
-) -> Tuple[ScenarioResult, ScenarioResult]:
-    """Model equilibrium shift as Iran gains nuclear capability.
-
-    Returns two results: (non_nuclear_iran, nuclear_iran).
-    """
-    # Sub-scenario A: Iran is non-nuclear
+def asymmetric_capability(base_config=None) -> Tuple[ScenarioResult, ScenarioResult]:
     cfg_a = deepcopy(base_config) if base_config else GameConfig()
-    cfg_a.iran_has_nuclear = False
-    cfg_a.credibility_usa = 0.7
-    cfg_a.credibility_iran = 0.3
+    cfg_a.challenger_can_escalate = False
+    cfg_a.credibility_defender = 0.7
+    cfg_a.credibility_challenger = 0.3
+    a = backward_induction(cfg_a)
+    a.name = "Asymmetric - Non-Nuclear"
+    a.description = "Challenger lacks nuclear capability. Defender has escalation dominance."
 
-    result_a = backward_induction(cfg_a)
-    result_a.name = "Asymmetric - Iran Non-Nuclear"
-    result_a.description = (
-        "Iran lacks nuclear capability. USA enjoys escalation dominance."
-    )
-
-    # Sub-scenario B: Iran acquires nuclear weapons
     cfg_b = deepcopy(base_config) if base_config else GameConfig()
-    cfg_b.iran_has_nuclear = True
-    cfg_b.credibility_usa = 0.7
-    cfg_b.credibility_iran = 0.7
+    cfg_b.credibility_defender = 0.7
+    cfg_b.credibility_challenger = 0.7
+    b = backward_induction(cfg_b)
+    b.name = "Asymmetric - Nuclear"
+    b.description = "Challenger acquires nukes with matched credibility."
+    return a, b
 
-    result_b = backward_induction(cfg_b)
-    result_b.name = "Asymmetric - Iran Nuclear"
-    result_b.description = (
-        "Iran acquires nuclear capability with matched credibility. "
-        "Symmetric threats stabilize toward mutual deterrence."
-    )
-
-    return result_a, result_b
-
-
-# ---------------------------------------------------------------------------
-# Scenario 4 — First-Strike Advantage
-# ---------------------------------------------------------------------------
-
-def first_strike_advantage(base_config: GameConfig | None = None) -> ScenarioResult:
-    """A positive first-strike bonus shifts equilibrium toward preemption.
-
-    Introduces a payoff premium for the player who escalates first.
-    """
+def first_strike_advantage(base_config=None) -> ScenarioResult:
     cfg = deepcopy(base_config) if base_config else GameConfig()
-    cfg.first_strike_bonus = 3.0
-    cfg.credibility_usa = 0.6
-    cfg.credibility_iran = 0.6
+    cfg.first_strike_bonus = 30.0
+    cfg.credibility_defender = 0.6
+    cfg.credibility_challenger = 0.6
+    r = backward_induction(cfg)
+    r.name = "First-Strike Advantage"
+    r.description = f"First-strike bonus={cfg.first_strike_bonus}. Preemption incentive."
+    return r
 
-    result = backward_induction(cfg)
-    result.name = "First-Strike Advantage"
-    result.description = (
-        f"First-strike bonus = {cfg.first_strike_bonus}. "
-        "Increased payoff for the initial attacker creates preemption incentive."
-    )
-    return result
+def limited_conflict_scenario(base_config=None) -> ScenarioResult:
+    cfg = deepcopy(base_config) if base_config else GameConfig()
+    cfg.credibility_defender = 0.55
+    cfg.credibility_challenger = 0.4
+    r = backward_induction(cfg)
+    r.name = "Limited Conflict Emergence"
+    r.description = "Constrained Limited-Response Equilibrium (Kilgour & Zagare)."
+    return r
 
-
-# ---------------------------------------------------------------------------
-# Convenience: run all scenarios
-# ---------------------------------------------------------------------------
-
-def run_all_scenarios(
-    base_config: GameConfig | None = None,
-) -> List[ScenarioResult]:
-    """Execute all four canonical scenarios and return results."""
-    results: List[ScenarioResult] = []
-
-    results.append(called_bluff(base_config))
-    results.append(rational_irrationality(base_config))
-
-    asym_a, asym_b = asymmetric_capability(base_config)
-    results.append(asym_a)
-    results.append(asym_b)
-
-    results.append(first_strike_advantage(base_config))
-
+def run_all_scenarios(base_config=None) -> List[ScenarioResult]:
+    results = [called_bluff(base_config), rational_irrationality(base_config)]
+    a, b = asymmetric_capability(base_config)
+    results.extend([a, b, first_strike_advantage(base_config),
+                    limited_conflict_scenario(base_config)])
     return results
 
-
 def print_scenario_results(results: List[ScenarioResult]) -> None:
-    """Pretty-print scenario results to stdout."""
-    divider = "=" * 65
-
-    print(f"\n+{divider}+")
-    print(f"|{'STRATEGIC SCENARIO ANALYSIS':^65}|")
-    print(f"+{divider}+")
-
+    div = "=" * 72
+    print(f"\n+{div}+")
+    print(f"|{'STRATEGIC SCENARIO ANALYSIS — Asymmetric Escalation Game':^72}|")
+    print(f"|{'(Kilgour & Zagare, 2007)':^72}|")
+    print(f"+{div}+")
     for r in results:
-        print(f"|  Scenario : {r.name:<51}|")
-
-        # Word-wrap description at 61 chars
+        print(f"|  Scenario : {r.name:<58}|")
         desc = r.description
         while desc:
-            chunk = desc[:61]
-            desc = desc[61:]
-            print(f"|  {chunk:<63}|")
-
-        print(f"|  Equilibrium : ({r.equilibrium[0]}, {r.equilibrium[1]})"
-              f"{'':>{42 - len(r.equilibrium[0]) - len(r.equilibrium[1])}}|")
-        print(f"|  Payoffs     : USA={r.payoffs[0]:>6.2f}  Iran={r.payoffs[1]:>6.2f}"
-              f"{'':>24}|")
-        print(f"|  Credibility : USA={r.config.credibility_usa:.2f}  "
-              f"Iran={r.config.credibility_iran:.2f}"
-              f"{'':>26}|")
-        print(f"|  Reasoning   :{'':>50}|")
+            print(f"|  {desc[:68]:<70}|")
+            desc = desc[68:]
+        eq = f"Chal={r.equilibrium[0]}, Def={r.equilibrium[1]}"
+        print(f"|  Equilibrium : {eq:<56}|")
+        print(f"|  Outcome     : {r.outcome:<56}|")
+        print(f"|  Payoffs     : Def={r.payoffs[0]:>7.2f}  Chal={r.payoffs[1]:>7.2f}{'':>26}|")
+        print(f"|  Credibility : Def={r.config.credibility_defender:.2f}  "
+              f"Chal={r.config.credibility_challenger:.2f}{'':>34}|")
+        print(f"|  Reasoning   :{'':>57}|")
         for line in r.reasoning.split("\n"):
-            if len(line) > 63:
-                line = line[:60] + "..."
-            print(f"|    {line:<61}|")
-        print(f"+{divider}+")
-
+            print(f"|    {line[:68]:<68}|")
+        print(f"+{div}+")
     print()
