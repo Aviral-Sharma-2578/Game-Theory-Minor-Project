@@ -1,0 +1,203 @@
+======================================================================
+  TWO-STAGE STRATEGIC DETERRENCE GAME SIMULATION
+  Based on Zagare (1992) & Kraig (1999)
+======================================================================
+
+[1/5] PAYOFF TABLE
+
++==========================================================+
+|            PAYOFF TABLE  (USA, Iran)                     |
++==========================================================+
+|  Stage   |  USA Action  | Iran Action |   Payoffs        |
++==========================================================+
+|  Conv.  |  Cooperate  | Cooperate  |  (  3.00,   3.00) |
+|  Conv.  |  Cooperate  | Defect     |  (  1.00,   4.00) |
+|  Conv.  |  Defect     | Cooperate  |  (  4.00,   1.00) |
+|  Conv.  |  Defect     | Defect     |  (  2.00,   2.00) |
+|  Nucl.  |  Escalate   | Escalate   |  ( -9.00,  -9.00) |
+|  Nucl.  |  Escalate   | Defect     |  (  5.00,  -4.00) |
+|  Nucl.  |  Defect     | Escalate   |  ( -4.00,   5.00) |
+|  Nucl.  |  Defect     | Defect     |  (  2.00,   2.00) |
++==========================================================+
+
+[2/5] STRATEGIC SCENARIO ANALYSIS
+
++=================================================================+
+|                   STRATEGIC SCENARIO ANALYSIS                   |
++=================================================================+
+|  Scenario : Called Bluff                                       |
+|  USA's nuclear threat is not credible (cred=0.1). Iran calls t  |
+|  he bluff and defects, seizing first-mover advantage.           |
+|  Equilibrium : (C, D)                                        |
+|  Payoffs     : USA=  1.00  Iran=  4.00                        |
+|  Credibility : USA=0.10  Iran=0.90                          |
+|  Reasoning   :                                                  |
+|    Nuclear sub-game: USA=D, Iran=E (payoff: -4.00, 5.00)        |
+|      DD effective payoff: (-3.40, 4.70)                         |
+|      USA: EV(C)=3.00  EV(D)=-2.66 -> C                          |
+|      Iran: EV(C)=3.00  EV(D)=4.07 -> D                          |
+|      -> Equilibrium: (C, D)                                     |
++=================================================================+
+|  Scenario : Rational Irrationality                             |
+|  Iran projects near-certain willingness to escalate (cred=0.95  |
+|  ). The 'Madman Theory' deters USA from conventional aggressio  |
+|  n.                                                             |
+|  Equilibrium : (C, D)                                        |
+|  Payoffs     : USA=  1.00  Iran=  4.00                        |
+|  Credibility : USA=0.30  Iran=0.95                          |
+|  Reasoning   :                                                  |
+|    Nuclear sub-game: USA=D, Iran=E (payoff: -4.00, 5.00)        |
+|      DD effective payoff: (-3.70, 4.85)                         |
+|      USA: EV(C)=3.00  EV(D)=-3.31 -> C                          |
+|      Iran: EV(C)=3.00  EV(D)=4.25 -> D                          |
+|      -> Equilibrium: (C, D)                                     |
++=================================================================+
+|  Scenario : Asymmetric - Iran Non-Nuclear                      |
+|  Iran lacks nuclear capability. USA enjoys escalation dominanc  |
+|  e.                                                             |
+|  Equilibrium : (D, C)                                        |
+|  Payoffs     : USA=  4.00  Iran=  1.00                        |
+|  Credibility : USA=0.70  Iran=0.30                          |
+|  Reasoning   :                                                  |
+|    Nuclear sub-game: USA=D, Iran=D (payoff: 2.00, 2.00)         |
+|      DD effective payoff: (2.00, 2.00)                          |
+|      USA: EV(C)=3.00  EV(D)=3.40 -> D                           |
+|      Iran: EV(C)=3.00  EV(D)=2.60 -> C                          |
+|      -> Equilibrium: (D, C)                                     |
++=================================================================+
+|  Scenario : Asymmetric - Iran Nuclear                          |
+|  Iran acquires nuclear capability with matched credibility. Sy  |
+|  mmetric threats stabilize toward mutual deterrence.            |
+|  Equilibrium : (C, C)                                        |
+|  Payoffs     : USA=  3.00  Iran=  3.00                        |
+|  Credibility : USA=0.70  Iran=0.70                          |
+|  Reasoning   :                                                  |
+|    Nuclear sub-game: USA=D, Iran=D (payoff: 2.00, 2.00)         |
+|      DD effective payoff: (2.00, 2.00)                          |
+|      USA: EV(C)=3.00  EV(D)=2.60 -> C                           |
+|      Iran: EV(C)=3.00  EV(D)=2.60 -> C                          |
+|      -> Equilibrium: (C, C)                                     |
++=================================================================+
+|  Scenario : First-Strike Advantage                             |
+|  First-strike bonus = 3.0. Increased payoff for the initial at  |
+|  tacker creates preemption incentive.                           |
+|  Equilibrium : (C, C)                                        |
+|  Payoffs     : USA=  3.00  Iran=  3.00                        |
+|  Credibility : USA=0.60  Iran=0.60                          |
+|  Reasoning   :                                                  |
+|    Nuclear sub-game: USA=D, Iran=D (payoff: 2.00, 2.00)         |
+|      DD effective payoff: (2.00, 2.00)                          |
+|      USA: EV(C)=3.00  EV(D)=2.80 -> C                           |
+|      Iran: EV(C)=3.00  EV(D)=2.80 -> C                          |
+|      -> Equilibrium: (C, C)                                     |
++=================================================================+
+
+[3/5] SENSITIVITY ANALYSIS
+
+                                                     SENSITIVITY ANALYSIS - Nash Equilibria                                                     
+                                                      (USA Credibility x Iran Credibility)                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------
+              Iran=0.0    Iran=0.1    Iran=0.2    Iran=0.3    Iran=0.4    Iran=0.5    Iran=0.6    Iran=0.7    Iran=0.8    Iran=0.9    Iran=1.0  
+------------------------------------------------------------------------------------------------------------------------------------------------
+   USA=0.0   D->E,D->E   D->E,D->E   D->E,D->E      C,D         C,D         C,D         C,D         C,D         C,D         C,D         C,D     
+   USA=0.1   D->E,D->E   D->E,D->E   D->E,D->E      C,D         C,D         C,D         C,D         C,D         C,D         C,D         C,D     
+   USA=0.2   D->E,D->E   D->E,D->E   D->E,D->E      C,C         C,D         C,D         C,D         C,D         C,D         C,D         C,D     
+   USA=0.3      D,C         D,C         C,C         C,C         C,D         C,D         C,D         C,D         C,D         C,D         C,D     
+   USA=0.4      D,C         D,C         D,C         D,C      D->D,D->D      C,D         C,D         C,D         C,D         C,D         C,D     
+   USA=0.5      D,C         D,C         D,C         D,C         D,C         C,C         C,C         C,C         C,C         C,C         C,C     
+   USA=0.6      D,C         D,C         D,C         D,C         D,C         C,C         C,C         C,C         C,C         C,C         C,C     
+   USA=0.7      D,C         D,C         D,C         D,C         D,C         C,C         C,C         C,C         C,C         C,C         C,C     
+   USA=0.8      D,C         D,C         D,C         D,C         D,C         C,C         C,C         C,C         C,C         C,C         C,C     
+   USA=0.9      D,C         D,C         D,C         D,C         D,C         C,C         C,C         C,C         C,C         C,C         C,C     
+   USA=1.0      D,C         D,C         D,C         D,C         D,C         C,C         C,C         C,C         C,C         C,C         C,C     
+------------------------------------------------------------------------------------------------------------------------------------------------
+
+[4/5] GENERATING STABILITY MAP ...
+
+[OK] Stability map saved to: stability_map.png
+
+[5/5] SIGNALING ANALYSIS
+
++------------------------------------------------------------------------------+
+|                              SIGNALING ANALYSIS                              |
+|  Mechanism : Audience Costs        Player : USA                           |
++------------------------------------------------------------------------------+
+|    Cost  |  Cred(USA)  |  Cred(Iran)  |    Equilibrium     |     Payoffs      |
++------------------------------------------------------------------------------+
+|     0.0  |       0.50  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     0.5  |       0.55  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     1.0  |       0.60  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     1.5  |       0.65  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     2.0  |       0.70  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     2.5  |       0.75  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     3.0  |       0.80  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     3.5  |       0.85  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     4.0  |       0.90  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     4.5  |       0.95  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     5.0  |       1.00  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
++------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------+
+|                              SIGNALING ANALYSIS                              |
+|  Mechanism : Audience Costs        Player : Iran                          |
++------------------------------------------------------------------------------+
+|    Cost  |  Cred(USA)  |  Cred(Iran)  |    Equilibrium     |     Payoffs      |
++------------------------------------------------------------------------------+
+|     0.0  |       0.50  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     0.5  |       0.50  |        0.55  |       (C, D)       |  ( 1.00,  4.00)  |
+|     1.0  |       0.50  |        0.60  |       (C, D)       |  ( 1.00,  4.00)  |
+|     1.5  |       0.50  |        0.65  |       (C, D)       |  ( 1.00,  4.00)  |
+|     2.0  |       0.50  |        0.70  |       (C, D)       |  ( 1.00,  4.00)  |
+|     2.5  |       0.50  |        0.75  |       (C, D)       |  ( 1.00,  4.00)  |
+|     3.0  |       0.50  |        0.80  |       (C, D)       |  ( 1.00,  4.00)  |
+|     3.5  |       0.50  |        0.85  |       (C, D)       |  ( 1.00,  4.00)  |
+|     4.0  |       0.50  |        0.90  |       (C, D)       |  ( 1.00,  4.00)  |
+|     4.5  |       0.50  |        0.95  |       (C, D)       |  ( 1.00,  4.00)  |
+|     5.0  |       0.50  |        1.00  |       (C, D)       |  ( 1.00,  4.00)  |
++------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------+
+|                              SIGNALING ANALYSIS                              |
+|  Mechanism : Sunk Costs            Player : USA                           |
++------------------------------------------------------------------------------+
+|    Cost  |  Cred(USA)  |  Cred(Iran)  |    Equilibrium     |     Payoffs      |
++------------------------------------------------------------------------------+
+|     0.0  |       0.50  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     0.5  |       0.54  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     1.0  |       0.58  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     1.5  |       0.62  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     2.0  |       0.66  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     2.5  |       0.70  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     3.0  |       0.74  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     3.5  |       0.78  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     4.0  |       0.82  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     4.5  |       0.86  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
+|     5.0  |       0.90  |        0.50  |       (D, C)       |  ( 4.00,  1.00)  |
++------------------------------------------------------------------------------+
+
+
++------------------------------------------------------------------------------+
+|                              SIGNALING ANALYSIS                              |
+|  Mechanism : Sunk Costs            Player : Iran                          |
++------------------------------------------------------------------------------+
+|    Cost  |  Cred(USA)  |  Cred(Iran)  |    Equilibrium     |     Payoffs      |
++------------------------------------------------------------------------------+
+|     0.0  |       0.50  |        0.50  |       (C, C)       |  ( 3.00,  3.00)  |
+|     0.5  |       0.50  |        0.54  |       (C, C)       |  ( 3.00,  3.00)  |
+|     1.0  |       0.50  |        0.58  |       (C, C)       |  ( 3.00,  3.00)  |
+|     1.5  |       0.50  |        0.62  |       (C, C)       |  ( 3.00,  3.00)  |
+|     2.0  |       0.50  |        0.66  |       (C, C)       |  ( 3.00,  3.00)  |
+|     2.5  |       0.50  |        0.70  |       (C, D)       |  ( 1.00,  4.00)  |
+|     3.0  |       0.50  |        0.74  |       (C, D)       |  ( 1.00,  4.00)  |
+|     3.5  |       0.50  |        0.78  |       (C, D)       |  ( 1.00,  4.00)  |
+|     4.0  |       0.50  |        0.82  |       (C, D)       |  ( 1.00,  4.00)  |
+|     4.5  |       0.50  |        0.86  |       (C, D)       |  ( 1.00,  4.00)  |
+|     5.0  |       0.50  |        0.90  |       (C, D)       |  ( 1.00,  4.00)  |
++------------------------------------------------------------------------------+
+
+
+======================================================================
+  SIMULATION COMPLETE
+======================================================================
