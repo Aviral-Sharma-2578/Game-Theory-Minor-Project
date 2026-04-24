@@ -132,8 +132,8 @@ def generate_stability_map(steps=51, output_path="stability_map.png"):
     norm = BoundaryNorm([0, 1, 2, 3, 4], cmap.N)
     ax1.imshow(zone_grid, origin="lower", extent=[0,1,0,1], aspect="auto",
                cmap=cmap, norm=norm, interpolation="nearest")
-    ax1.set_xlabel("Challenger (Iran) Credibility pCh", fontsize=12, fontweight="bold")
-    ax1.set_ylabel("Defender (USA) Credibility p", fontsize=12, fontweight="bold")
+    ax1.set_xlabel("Challenger (USA) Credibility pCh", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Defender (Iran) Credibility p", fontsize=12, fontweight="bold")
     ax1.set_title("Equilibrium Zones\n(Kilgour & Zagare, 2007)", fontsize=14, fontweight="bold")
     legend = [
         Patch(facecolor="#2ecc71", edgecolor="k", label="Deterrence (SQ)"),
@@ -146,8 +146,8 @@ def generate_stability_map(steps=51, output_path="stability_map.png"):
     # --- Plot 2: Escalation risk heatmap ---
     im = ax2.imshow(risk_grid, origin="lower", extent=[0,1,0,1], aspect="auto",
                     cmap="YlOrRd", vmin=0, vmax=1, interpolation="bilinear")
-    ax2.set_xlabel("Challenger (Iran) Credibility pCh", fontsize=12, fontweight="bold")
-    ax2.set_ylabel("Defender (USA) Credibility p", fontsize=12, fontweight="bold")
+    ax2.set_xlabel("Challenger (USA) Credibility pCh", fontsize=12, fontweight="bold")
+    ax2.set_ylabel("Defender (Iran) Credibility p", fontsize=12, fontweight="bold")
     ax2.set_title("Escalation Risk\n(Prob. of E-path outcomes)", fontsize=14, fontweight="bold")
     fig.colorbar(im, ax=ax2, label="Escalation Risk", shrink=0.8)
 
