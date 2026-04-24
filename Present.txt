@@ -1,3 +1,33 @@
-USA vs USSR cold war
+Why do we have a little extra green region next to red one?
 
-The Status Quo is not an equilibrium in a one-level game in which each player lacks a credible retaliatory threat (Zagare, 1987; Powell, 1990). Thus, the addition of a second level to a game may enhance the stability of a deterrence relationship. 
+That is a brilliant observation! What you've spotted is one of the most fascinating mathematical quirks of this game model—a phenomenon we might call the **"Stability Paradox."**
+
+If you look closely at the output table (around `0.3` credibility for both), you get a patch of **Mutual Deterrence (Green C,C)**. But if credibility increases slightly to `0.4`, it drops into **Conventional Conflict (Gold D,D)**, before becoming peaceful again at `0.5+`. 
+
+This non-linear shape happens because of how the mathematical expected value (EV) flips based on how "arrogant" or "afraid" the players are. Here is exactly what those zones represent:
+
+### 1. The Red Zone (${\le}0.2$): Arrogance & Nuclear War
+When credibility is very low, both nations are arrogant. 
+* **Stage 1**: Because they think there's only a 20% downside to attacking, the temptation to defect (4.0) outweighs the risk. Both defect.
+* **Stage 2**: Once in a conflict, they both choose to Escalate to nukes. *Why?* Because they calculate: *"My opponent's credibility is only 0.2—there is an 80% chance they will back down and I'll win."* Since both think the other is bluffing, they both press the button. Result: **Mutually Assured Destruction**.
+
+### 2. The Little Green Pocket ($\approx 0.3$): The "Fear of MAD" Zone
+This is the little extra green region you noticed. 
+* At `0.3`, both players are still willing to press the nuclear button in Stage 2 (since they still think there's a 70% chance the other will back down). 
+* Because the nuclear threat is mathematically genuine, creating a risk payoff of `-9.0`, a 30% chance of apocalyptic annihilation is now factored into Stage 1. 
+* This 30% risk of `-9.0` completely overwhelms the temptation to attack (4.0). **The sheer terror of the genuine nuclear shadow successfully deters them.** 
+
+### 3. The Gold "Trench" ($0.4$): The Loss of Nerve
+So why does it become violent again at $0.4$?
+* When credibility hits $0.4$, the math flips! If USA thinks there's a 40% chance Iran will fight back with nukes, the Expected Value of escalating becomes negative (since 40% of `-9.0` is too painful). 
+* **Both players lose their nerve.** The math says it is no longer rational for *either* side to escalate in Stage 2.
+* Because the nuclear threat is effectively "off the table," the worst-case scenario drops from `-9.0` (MAD) to just `2.0` (a conventional proxy war). 
+* But since there's only a 40% chance of that conventional war happening, the temptation of a cheap first-strike (4.0) is mathematically worth the risk. **They fight a conventional war because they know the nuclear threat is a bluff.**
+
+### 4. The Main Green Block (${\ge}0.5$): Conventional Deterrence
+Finally, when credibility gets to 50% or higher, peace returns.
+* Even though the nuclear threat is still mathematically "off the table" (neither would rationally press the button against someone with >50% resolve), the chance of getting bogged down in a messy **conventional retaliation** is now $\ge50\%$. 
+* The math settles at `0.5 × 4.0 + 0.5 × 2.0 = 3.0`.
+* Since 3.0 is exactly equal to the payoff of simply cooperating (3.0), the temptation to attack is entirely neutralized. They stay peaceful because even conventional war isn't worth the hassle anymore.
+
+**In summary:** That sliver of green exists because it is the "sweet spot" where they are just arrogant enough to still threaten nukes, but just afraid enough of those nukes to stay in line. If credibility rises slightly more, they realize the nukes are unusable, and conventional war breaks out!
